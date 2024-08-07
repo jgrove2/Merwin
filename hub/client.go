@@ -1,15 +1,16 @@
 package hub
 
 import (
-	"bytes"
 	"encoding/json"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/jgrove2/browser_game_engine/canvas"
+	"github.com/jgrove2/Merwin/canvas"
+	"github.com/jgrove2/Merwin/window"
 )
 
 type Client struct {
@@ -17,7 +18,7 @@ type Client struct {
 	hub  *Hub
 	conn *websocket.Conn
 	// Buffered channel of outbound messages.
-	send chan []byte
+	send       chan []byte
 	userCanvas canvas.Canvas
 }
 
@@ -40,7 +41,7 @@ const (
 func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println(err)
+		slog.Error(fmt.Sprintf("%v", err))
 		return
 	}
 
@@ -93,6 +94,7 @@ func (c *Client) writePump() {
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				slog.Error(fmt.Sprintf("%v", err))
 				return
 			}
 		}
@@ -115,23 +117,21 @@ func (c *Client) readPump() {
 
 	for {
 		_, text, err := c.conn.ReadMessage()
-		log.Printf("value: %v", string(text))
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				slog.Error(fmt.Sprintf("%v", err))
 			}
 			break
 		}
+		var newUserEvent window.UserEvent
 
-		msg := &canvas.BaseCanvas{}
-
-		reader := bytes.NewReader(text)
-		decoder := json.NewDecoder(reader)
-		err = decoder.Decode(msg)
+		err = json.Unmarshal(text, &newUserEvent)
 		if err != nil {
-			log.Printf("error: %v", err)
+			slog.Error(fmt.Sprintf("%v", err))
 		}
 
-		c.hub.broadcast <- &c.userCanvas.Canvas
+		newUserEvent.UserID = c.id
+
+		c.hub.window.EventList <- &newUserEvent
 	}
 }

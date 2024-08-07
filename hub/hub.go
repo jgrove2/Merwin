@@ -2,10 +2,13 @@ package hub
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
-	"log"
+	"log/slog"
 	"sync"
-	"github.com/jgrove2/browser_game_engine/canvas"
+
+	"github.com/jgrove2/Merwin/canvas"
+	"github.com/jgrove2/Merwin/window"
 )
 
 // Hub maintains the set of active clients and broadcasts messages to the
@@ -15,6 +18,7 @@ type Hub struct {
 
 	clients map[*Client]bool
 
+	window     *window.Window
 	broadcast  chan *canvas.BaseCanvas
 	register   chan *Client
 	unregister chan *Client
@@ -23,19 +27,13 @@ type Hub struct {
 func NewHub() *Hub {
 	return &Hub{
 		clients:    map[*Client]bool{},
+		window:     window.NewWindow(),
 		broadcast:  make(chan *canvas.BaseCanvas),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
 }
 
-/*
-The select statement inside the loop is used to attempt a non-blocking send operation. If the client's send channel is ready to receive the message (i.e., it's not blocked), case client.send <- msg: will execute, sending the message to the client.
-
-If the client's send channel is not ready to receive the message (i.e., it's blocked because the client is not ready to receive data or the channel is full), the default: case will execute. This will close the client's send channel and remove the client from the h.clients map, effectively disconnecting the client.
-
-This code is a common pattern in Go for handling multiple clients and ensuring that if one client is slow or unresponsive, it doesn't block the entire system from sending messages to other clients.
-*/
 func (h *Hub) Run() {
 	for {
 		select {
@@ -43,15 +41,15 @@ func (h *Hub) Run() {
 			h.Lock()
 			h.clients[client] = true
 			h.Unlock()
-
-			log.Printf("client registered %s", client.id)
+			slog.Info("New client connected", "client_id", client.id)
 
 			client.send <- getMessageTemplate(&client.userCanvas.Canvas)
 		case client := <-h.unregister:
 			h.Lock()
 			if _, ok := h.clients[client]; ok {
 				close(client.send)
-				log.Printf("client unregistered %s", client.id)
+				slog.Info("client unregistered", "client_id", client.id)
+
 				delete(h.clients, client)
 			}
 			h.Unlock()
@@ -66,21 +64,24 @@ func (h *Hub) Run() {
 				}
 			}
 			h.RUnlock()
+		case userEvent := <-h.window.EventList:
+			slog.Info(userEvent.UserID, userEvent.Event, userEvent.Key)
 		}
+
 	}
 }
 
 func getMessageTemplate(data *canvas.BaseCanvas) []byte {
 	tmpl, err := template.ParseFiles("templates/canvas.html")
 	if err != nil {
-		log.Fatalf("template parsing: %s", err)
+		slog.Error(fmt.Sprintf("%v", err))
 	}
 
 	// Render the template with the message as data.
 	var renderedCanvas bytes.Buffer
 	err = tmpl.Execute(&renderedCanvas, data)
 	if err != nil {
-		log.Fatalf("template execution: %s", err)
+		slog.Error(fmt.Sprintf("%v", err))
 	}
 
 	return renderedCanvas.Bytes()

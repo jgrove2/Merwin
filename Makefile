@@ -1,8 +1,8 @@
 run: build
-	@./bin/chat
+	@./bin/merwin_cli >> bin/logs/logfile
 
 build:
-	@go build -o bin/chat
+	@go build -o bin/merwin_cli cmd/merwin/main.go
 
 test:
-	@go test -v ./...
+	@./bin/merwin_cli
